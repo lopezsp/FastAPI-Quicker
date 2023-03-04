@@ -51,15 +51,16 @@ class UserRegister(User):
     )
 
 class Quick(BaseModel):
-    Quick_id: UUID = Field(...)
+    quick_id: UUID = Field(...)
     content: str = Field(
         ..., 
         min_length=1, 
         max_length=256
     )
     created_at: datetime = Field(default=datetime.now())
-    update_at: Optional[datetime] = Field(default=None)
+    updated_at: Optional[datetime] = Field(default=None)
     by: User = Field(...)
+
 
 # Path Operations
 
@@ -98,9 +99,7 @@ def signup(user: UserRegister = Body(...)):
         results.append(user_dict)
         f.seek(0)
         f.write(json.dumps(results))
-        return user
-
-      
+        return user      
 
 ### Login a user
 @app.post(
@@ -122,7 +121,22 @@ def login():
     tags=["Users"]
 )
 def show_all_users(): 
-    pass
+    """
+    This path operation shows all users in the app
+
+    Parameters: 
+        -
+
+    Returns a json list with all users in the app, with the following keys: 
+        - user_id: UUID
+        - email: Emailstr
+        - first_name: str
+        - last_name: str
+        - birth_date: datetime
+    """
+    with open("users.json", "r", encoding="utf-8") as f: 
+        results = json.loads(f.read())
+        return results
 
 ### Show a user
 @app.get(
@@ -179,8 +193,37 @@ def home():
     summary="Post a quick",
     tags=["Quicks"]
 )
-def post(): 
-    pass
+def post(quick: Quick = Body(...)):
+    """
+        Post a quick
+
+        This path operation post a quick in the app
+
+        Parameters: 
+            - Request body parameter
+                - quick: quick
+        
+        Returns a json with the basic quick information: 
+            quick_id: UUID  
+            content: str    
+            created_at: datetime
+            updated_at: Optional[datetime]
+            by: User
+    """
+    with open("quicks.json", "r+", encoding="utf-8") as f: 
+        results = json.loads(f.read())
+        quick_dict = quick.dict()
+        quick_dict["quick_id"] = str(quick_dict["quick_id"])
+        quick_dict["created_at"] = str(quick_dict["created_at"])
+        quick_dict["updated_at"] = str(quick_dict["updated_at"])
+        quick_dict["by"]["user_id"] = str(quick_dict["by"]["user_id"])
+        quick_dict["by"]["birth_date"] = str(quick_dict["by"]["birth_date"])
+
+        results.append(quick_dict)
+        f.seek(0)
+        f.write(json.dumps(results))
+        return quick
+    
 
 ### Show a quick
 @app.get(

@@ -1,0 +1,28 @@
+[
+  {
+    "quick_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "content": "string",
+    "created_at": "2023-03-03 20:26:41.185153",
+    "updated_at": "2023-03-04 01:26:47.319000+00:00",
+    "by": {
+      "user_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "email": "user@example.com",
+      "first_name": "string",
+      "last_name": "string",
+      "birth_date": "2023-03-04"
+    }
+  },
+  {
+    "quick_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "content": "el primer quick de la historia",
+    "created_at": "2023-03-03 20:26:41.185153",
+    "updated_at": "2023-03-04 01:26:58.466000+00:00",
+    "by": {
+      "user_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "email": "user@example.com",
+      "first_name": "coiaaaaas",
+      "last_name": "string",
+      "birth_date": "2023-03-04"
+    }
+  }
+]
