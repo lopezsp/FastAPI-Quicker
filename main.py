@@ -20,6 +20,7 @@ from config.database import engine, Base
 from config.database import Session
 from models.models import User as UserModel
 from fastapi.responses import JSONResponse
+import bcrypt
 
 app = FastAPI()
 
@@ -33,7 +34,7 @@ class UserLogin(UserBase):
     password: str = Field(
         ..., 
         min_length=8,
-        max_length=64
+        max_length=256
     )
 
 class User(UserBase):
@@ -102,22 +103,18 @@ def signup(user: UserRegister = Body(...)):
     """
     db = Session()
     new_user = UserModel(**user.dict())
+    hashed_password = bcrypt.hashpw(new_user.password.encode('utf-8'), bcrypt.gensalt())
+    new_user.password = hashed_password
+    users = db.query(UserModel).all()
+    for us in users:
+        if user.email == us.email:
+            return JSONResponse(status_code=400, content={'message': 'Email is already in use'})
+            break
+
     db.add(new_user)
     db.commit()
-
-    return JSONResponse(status_code=201, content={"message": "Movie had been created"})
-    
-    '''with open("users.json", "r+", encoding="utf-8") as f: 
-        results = json.loads(f.read())
-        user_dict = user.dict()
-        user_dict["user_id"] = str(user_dict["user_id"])
-        user_dict["birth_date"] = str(user_dict["birth_date"])
-        results.append(user_dict)
-        f.seek(0)
-        f.write(json.dumps(results))
-        return user'''
-
-
+    return JSONResponse(status_code=201, content={"message": "User has been created"})
+            
 ### Login a user
 @app.post(
     path="/login",
@@ -126,8 +123,14 @@ def signup(user: UserRegister = Body(...)):
     summary="Login a User",
     tags=["Users"]
 )
-def login(): 
-    pass
+def login(user: UserLogin): 
+    db = Session()
+    users = db.query(UserModel).filter(UserModel.email == user.email).first()
+    if bcrypt.checkpw(user.password.encode('utf-8'), users.password):
+        token: str = create_token(user.dict())
+        return JSONResponse(status_code=200, content=token)
+    else:
+        return JSONResponse(status_code=404, content={'message': 'Password incorrect or user does not exist'})   
 
 ### Show all users
 @app.get(
@@ -213,11 +216,9 @@ def home():
             updated_at: Optional[datetime]
             by: User
     """
-    with open("quicks.json", "r", encoding="utf-8") as f: 
-        results = json.loads(f.read())
-        return results
+    return JSONResponse(status_code=200, content={'message': 'hello quickers'})
 
-### Post a quick
+## Post a quick
 @app.post(
     path="/post",
     response_model=Quick,
