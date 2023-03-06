@@ -15,13 +15,19 @@ from fastapi import FastAPI
 from fastapi import status
 from fastapi import Body
 
+from jwt_manager import create_token
+from config.database import engine, Base
+from config.database import Session
+from models.models import User as UserModel
+from fastapi.responses import JSONResponse
+
 app = FastAPI()
 
 # Models
 
 class UserBase(BaseModel):
-    user_id: UUID = Field(...)
-    email: EmailStr = Field(...)
+    user_id: int = Field(...)
+    email: str = Field(...)
 
 class UserLogin(UserBase):
     password: str = Field(
@@ -61,6 +67,9 @@ class Quick(BaseModel):
     updated_at: Optional[datetime] = Field(default=None)
     by: User = Field(...)
 
+ 
+# Tables
+Base.metadata.create_all(bind=engine)
 
 # Path Operations
 
@@ -91,7 +100,14 @@ def signup(user: UserRegister = Body(...)):
             - last_name: str
             - birth_date: str
     """
-    with open("users.json", "r+", encoding="utf-8") as f: 
+    db = Session()
+    new_user = UserModel(**user.dict())
+    db.add(new_user)
+    db.commit()
+
+    return JSONResponse(status_code=201, content={"message": "Movie had been created"})
+    
+    '''with open("users.json", "r+", encoding="utf-8") as f: 
         results = json.loads(f.read())
         user_dict = user.dict()
         user_dict["user_id"] = str(user_dict["user_id"])
@@ -99,7 +115,8 @@ def signup(user: UserRegister = Body(...)):
         results.append(user_dict)
         f.seek(0)
         f.write(json.dumps(results))
-        return user      
+        return user'''
+
 
 ### Login a user
 @app.post(
@@ -183,7 +200,22 @@ def update_a_user():
     tags=["Quicks"]
 )
 def home():
-    return {"Quicker API": "Working!"}
+    """
+    This path operation shows all quicks in the app
+
+    Parameters: 
+        -
+
+    Returns a json list with all quicks in the app: 
+            quick_id: UUID  
+            content: str    
+            created_at: datetime
+            updated_at: Optional[datetime]
+            by: User
+    """
+    with open("quicks.json", "r", encoding="utf-8") as f: 
+        results = json.loads(f.read())
+        return results
 
 ### Post a quick
 @app.post(
