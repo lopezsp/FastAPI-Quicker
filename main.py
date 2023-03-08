@@ -13,28 +13,31 @@ from pydantic import Field
 # FastAPI
 from fastapi import FastAPI
 from fastapi import status
-from fastapi import Body
+from fastapi import Body, Depends
 
 from jwt_manager import create_token
 from config.database import engine, Base
 from config.database import Session
 from models.models import User as UserModel
+from models.models import Quick as QuickModel
 from fastapi.responses import JSONResponse
 import bcrypt
+from middlewares.jwt_bearer import JWTBearer
+from jwt_manager import validate_token
+from fastapi.security import HTTPBearer
+from fastapi import Request, HTTPException
 
 app = FastAPI()
 
 # Models
 
 class UserBase(BaseModel):
-    user_id: int = Field(...)
-    email: str = Field(...)
+    user_id: int = Field(default=9)
+    email: str = Field(default='seba@example.com')
 
 class UserLogin(UserBase):
-    password: str = Field(
-        ..., 
-        min_length=8,
-        max_length=256
+    password: str = Field(       
+        default='coiastian21'
     )
 
 class User(UserBase):
@@ -58,7 +61,7 @@ class UserRegister(User):
     )
 
 class Quick(BaseModel):
-    quick_id: UUID = Field(...)
+    quick_id: int = Field(...)
     content: str = Field(
         ..., 
         min_length=1, 
@@ -66,10 +69,9 @@ class Quick(BaseModel):
     )
     created_at: datetime = Field(default=datetime.now())
     updated_at: Optional[datetime] = Field(default=None)
-    by: User = Field(...)
+    by: str = Field(...)
 
  
-# Tables
 Base.metadata.create_all(bind=engine)
 
 # Path Operations
@@ -224,9 +226,10 @@ def home():
     response_model=Quick,
     status_code=status.HTTP_201_CREATED,
     summary="Post a quick",
-    tags=["Quicks"]
+    tags=["Quicks"],
+    dependencies=[Depends(JWTBearer())]
 )
-def post(quick: Quick = Body(...)):
+def post(request: Request, quick: Quick = Body(...)):
     """
         Post a quick
 
@@ -243,19 +246,15 @@ def post(quick: Quick = Body(...)):
             updated_at: Optional[datetime]
             by: User
     """
-    with open("quicks.json", "r+", encoding="utf-8") as f: 
-        results = json.loads(f.read())
-        quick_dict = quick.dict()
-        quick_dict["quick_id"] = str(quick_dict["quick_id"])
-        quick_dict["created_at"] = str(quick_dict["created_at"])
-        quick_dict["updated_at"] = str(quick_dict["updated_at"])
-        quick_dict["by"]["user_id"] = str(quick_dict["by"]["user_id"])
-        quick_dict["by"]["birth_date"] = str(quick_dict["by"]["birth_date"])
-
-        results.append(quick_dict)
-        f.seek(0)
-        f.write(json.dumps(results))
-        return quick
+    db = Session()
+    new_quick = QuickModel(**quick.dict())
+    data = request.state.current_user
+    if data['email'] != quick.by:
+        return JSONResponse(status_code=400, content={'message': 'Unauthorized'})
+        
+    db.add(new_quick)
+    db.commit()
+    return JSONResponse(status_code=201, content={"message": "You quicked"})
     
 
 ### Show a quick

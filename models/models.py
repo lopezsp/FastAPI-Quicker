@@ -1,5 +1,5 @@
 from config.database import Base
-from sqlalchemy import Column, String, Integer, DateTime, JSON, ForeignKey
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey
 
 
 class User(Base):
@@ -13,7 +13,7 @@ class User(Base):
     last_name = Column(String)
     birth_date = Column(DateTime)
 
-class Quick(User):
+class Quick(Base):
 
     __tablename__ = "Quick"
 
@@ -21,5 +21,5 @@ class Quick(User):
     content = Column (String)
     created_at = Column(DateTime)
     updated_at = Column(DateTime)
-    by = Column(JSON, ForeignKey('Users.user_id'))
+    by = Column(String, ForeignKey('Users.email'))
     
