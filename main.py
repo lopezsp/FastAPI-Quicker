@@ -1,6 +1,5 @@
 # Python
 import json
-from uuid import UUID
 from datetime import date
 from datetime import datetime
 from typing import Optional, List
@@ -13,7 +12,7 @@ from pydantic import Field
 # FastAPI
 from fastapi import FastAPI
 from fastapi import status
-from fastapi import Body, Depends
+from fastapi import Body, Depends, Header
 
 from jwt_manager import create_token
 from config.database import engine, Base
@@ -24,8 +23,8 @@ from fastapi.responses import JSONResponse
 import bcrypt
 from middlewares.jwt_bearer import JWTBearer
 from jwt_manager import validate_token
-from fastapi.security import HTTPBearer
-from fastapi import Request, HTTPException
+from fastapi import Request
+from models.models import Followers
 
 app = FastAPI()
 
@@ -33,9 +32,16 @@ app = FastAPI()
 
 class UserBase(BaseModel):
     user_id: int = Field(default=9)
-    email: str = Field(default='seba@example.com')
+    email: EmailStr = Field(default='seba@example.com')
 
-class UserLogin(UserBase):
+class UserBaseFollow(BaseModel):
+    follower_id: int = Field(default=0)
+    user_followed_id: int = Field(...)
+
+class UserBaseLogin(BaseModel):
+    email: EmailStr = Field(...)
+
+class UserLogin(UserBaseLogin):
     password: str = Field(       
         default='coiastian21'
     )
@@ -52,7 +58,7 @@ class User(UserBase):
         max_length=50
     )
     birth_date: Optional[date] = Field(default=None)
-
+    
 class UserRegister(User):
     password: str = Field(
         ..., 
@@ -61,7 +67,6 @@ class UserRegister(User):
     )
 
 class Quick(BaseModel):
-    quick_id: int = Field(...)
     content: str = Field(
         ..., 
         min_length=1, 
@@ -69,8 +74,7 @@ class Quick(BaseModel):
     )
     created_at: datetime = Field(default=datetime.now())
     updated_at: Optional[datetime] = Field(default=None)
-    by: str = Field(...)
-
+    by: Optional[str] = Field(default=None)
  
 Base.metadata.create_all(bind=engine)
 
@@ -134,15 +138,50 @@ def login(user: UserLogin):
     else:
         return JSONResponse(status_code=404, content={'message': 'Password incorrect or user does not exist'})   
 
-### Show all users
-@app.get(
-    path="/users",
+### Follow a user
+@app.post(
+    path="/follow",
     response_model=List[User],
     status_code=status.HTTP_200_OK,
-    summary="Show all users",
+    summary="Follow a user",
     tags=["Users"]
 )
-def show_all_users(): 
+def follow_user(follow: UserBaseFollow = Body(...), auth: str = Header(...)):
+    db = Session()
+    new_follow = Followers(**follow.dict())
+    user_to_follow_id = db.query(UserModel).filter(UserModel.user_id == new_follow.user_followed_id).first()
+    if user_to_follow_id:
+        data = validate_token(auth)
+        user_follower = db.query(UserModel).filter(UserModel.email == data['email']).first()
+        new_follow.follower_id = user_follower.user_id
+        db.add(new_follow)
+        db.commit()
+        return JSONResponse(status_code=200, content={'message': 'You followed'})
+    else:
+        return JSONResponse(status_code=404, content={'message': 'User Not Found!'})
+
+
+
+### Show all followed
+@app.get(
+    path="/usersfollowed",
+    response_model=List[User],
+    status_code=status.HTTP_200_OK,
+    summary="Show all users i follow",
+    tags=["Users"]
+)
+def show_followed():
+    pass
+
+### Show all followers
+@app.get(
+    path="/followers",
+    response_model=List[User],
+    status_code=status.HTTP_200_OK,
+    summary="Show all followers",
+    tags=["Users"]
+)
+def show_all_followers(): 
     """
     This path operation shows all users in the app
 
@@ -247,11 +286,9 @@ def post(request: Request, quick: Quick = Body(...)):
             by: User
     """
     db = Session()
-    new_quick = QuickModel(**quick.dict())
     data = request.state.current_user
-    if data['email'] != quick.by:
-        return JSONResponse(status_code=400, content={'message': 'Unauthorized'})
-        
+    quick.by = data['email']
+    new_quick = QuickModel(**quick.dict()) 
     db.add(new_quick)
     db.commit()
     return JSONResponse(status_code=201, content={"message": "You quicked"})
