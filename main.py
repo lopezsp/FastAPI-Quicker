@@ -47,6 +47,11 @@ class UserLogin(UserBaseLogin):
     )
 
 class User(UserBase):
+    nick_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=20
+    )
     first_name: str = Field(
         ...,
         min_length=1,
@@ -58,6 +63,7 @@ class User(UserBase):
         max_length=50
     )
     birth_date: Optional[date] = Field(default=None)
+    followers: Optional[int] = Field(default=0)
     
 class UserRegister(User):
     password: str = Field(
@@ -101,7 +107,8 @@ def signup(user: UserRegister = Body(...)):
                 - user: UserRegister
         
         Returns a json with the basic user information: 
-            - user_id: UUID
+            - user_id: int
+            - nick_name: str
             - email: Emailstr
             - first_name: str
             - last_name: str
@@ -115,8 +122,6 @@ def signup(user: UserRegister = Body(...)):
     for us in users:
         if user.email == us.email:
             return JSONResponse(status_code=400, content={'message': 'Email is already in use'})
-            break
-
     db.add(new_user)
     db.commit()
     return JSONResponse(status_code=201, content={"message": "User has been created"})
@@ -154,12 +159,47 @@ def follow_user(follow: UserBaseFollow = Body(...), auth: str = Header(...)):
         data = validate_token(auth)
         user_follower = db.query(UserModel).filter(UserModel.email == data['email']).first()
         new_follow.follower_id = user_follower.user_id
+        already_follow = db.query(Followers).filter(Followers.follower_id == user_follower.user_id)
+        for object in already_follow:
+            if object.user_followed_id == new_follow.user_followed_id:
+                return JSONResponse(status_code=400, content={'message': 'You already follow this user'})
+            
+        if new_follow.follower_id == new_follow.user_followed_id:
+                return JSONResponse(status_code=400, content={'message': 'You can not follow yourself'})                   
         db.add(new_follow)
-        db.commit()
+        user_to_follow_id.followers += 1
+        db.commit()        
         return JSONResponse(status_code=200, content={'message': 'You followed'})
     else:
         return JSONResponse(status_code=404, content={'message': 'User Not Found!'})
 
+### Unfollow a user
+@app.post(
+    path="/unfollow",
+    response_model=List[User],
+    status_code=status.HTTP_200_OK,
+    summary="Unfollow a user",
+    tags=["Users"]
+)
+def unfollow_user(unfollow: UserBaseFollow = Body(...), auth: str = Header(...)):
+    db = Session()
+    follow = Followers(**unfollow.dict())
+    user_to_unfollow = db.query(UserModel).filter(UserModel.user_id == follow.user_followed_id).first()
+    if user_to_unfollow:
+        data = validate_token(auth)
+        user_follower = db.query(UserModel).filter(UserModel.email == data['email']).first()
+        followed_list = db.query(Followers).filter(Followers.follower_id == user_follower.user_id)
+        for object in followed_list:
+            if object.user_followed_id == follow.user_followed_id:
+                db.delete(object)
+                user_to_unfollow.followers -= 1
+                db.commit()
+                break
+            else:
+                return JSONResponse(status_code=404, content={'message': 'You are not following this user'})
+        return JSONResponse(status_code=200, content={'message': 'You unfollowed'})
+    else:
+        return JSONResponse(status_code=404, content={'message': 'User Not Found!'})
 
 
 ### Show all followed

@@ -12,6 +12,8 @@ class User(Base):
     first_name = Column(String)
     last_name = Column(String)
     birth_date = Column(DateTime)
+    followers = Column(Integer)
+    nick_name = Column(String)
     
 class Quick(Base):
 
