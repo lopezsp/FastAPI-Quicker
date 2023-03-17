@@ -13,6 +13,7 @@ from pydantic import Field
 from fastapi import FastAPI
 from fastapi import status
 from fastapi import Body, Depends, Header
+from fastapi.encoders import jsonable_encoder
 
 from jwt_manager import create_token
 from config.database import engine, Base
@@ -188,7 +189,7 @@ def unfollow_user(unfollow: UserBaseFollow = Body(...), auth: str = Header(...))
     if user_to_unfollow:
         data = validate_token(auth)
         user_follower = db.query(UserModel).filter(UserModel.email == data['email']).first()
-        followed_list = db.query(Followers).filter(Followers.follower_id == user_follower.user_id)
+        followed_list = db.query(Followers).filter(Followers.follower_id == user_follower.user_id).all()
         for object in followed_list:
             if object.user_followed_id == follow.user_followed_id:
                 db.delete(object)
@@ -210,34 +211,51 @@ def unfollow_user(unfollow: UserBaseFollow = Body(...), auth: str = Header(...))
     summary="Show all users i follow",
     tags=["Users"]
 )
-def show_followed():
+def show_followed(auth: str = Header(...)):
     pass
 
 ### Show all followers
 @app.get(
-    path="/followers",
+    path="/myfollowers",
     response_model=List[User],
     status_code=status.HTTP_200_OK,
-    summary="Show all followers",
+    summary="Show my followers",
     tags=["Users"]
 )
-def show_all_followers(): 
+def show_my_followers(auth: str = Header(...)): 
     """
-    This path operation shows all users in the app
+    This path operation shows all your followers in the app
 
     Parameters: 
         -
 
     Returns a json list with all users in the app, with the following keys: 
-        - user_id: UUID
+        - user_id: int
         - email: Emailstr
+        - nick_name: str
         - first_name: str
         - last_name: str
         - birth_date: datetime
+        - followers
     """
-    with open("users.json", "r", encoding="utf-8") as f: 
-        results = json.loads(f.read())
-        return results
+    db = Session()
+    data = validate_token(auth)
+    current_user = db.query(UserModel).filter(UserModel.email == data['email']).first()
+    my_followers = db.query(Followers).filter(Followers.user_followed_id == current_user.user_id).all()
+    users_followers = [None] * len(my_followers)
+    for i, object in enumerate(my_followers):
+        users_followers[i] = db.query(UserModel).filter(UserModel.user_id == object.follower_id).first()
+    exclude_pass = [None] * len(users_followers)
+    for i in range(len(users_followers)):
+        exclude_pass[i] = User(nick_name='nick_name', first_name='first_name', last_name='last_name')
+        exclude_pass[i].user_id = users_followers[i].user_id
+        exclude_pass[i].email = users_followers[i].email
+        exclude_pass[i].nick_name = users_followers[i].nick_name
+        exclude_pass[i].first_name = users_followers[i].first_name
+        exclude_pass[i].last_name = users_followers[i].last_name
+        exclude_pass[i].birth_date = users_followers[i].birth_date
+        exclude_pass[i].followers = users_followers[i].followers
+    return JSONResponse(status_code=200, content=jsonable_encoder(exclude_pass))
 
 ### Show a user
 @app.get(
@@ -319,7 +337,7 @@ def post(request: Request, quick: Quick = Body(...)):
                 - quick: quick
         
         Returns a json with the basic quick information: 
-            quick_id: UUID  
+            quick_id: int  
             content: str    
             created_at: datetime
             updated_at: Optional[datetime]
