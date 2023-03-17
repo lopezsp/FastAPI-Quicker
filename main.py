@@ -212,7 +212,26 @@ def unfollow_user(unfollow: UserBaseFollow = Body(...), auth: str = Header(...))
     tags=["Users"]
 )
 def show_followed(auth: str = Header(...)):
-    pass
+    db = Session()
+    data = validate_token(auth)
+    current_user = db.query(UserModel).filter(UserModel.email == data['email']).first()
+    my_followed = db.query(Followers).filter(Followers.follower_id == current_user.user_id).all()
+    users_followers = [None] * len(my_followed)
+    for i, object in enumerate(my_followed):
+        users_followers[i] = db.query(UserModel).filter(UserModel.user_id == object.user_followed_id).first()
+
+    exclude_pass = [None] * len(users_followers)
+
+    for i in range(len(users_followers)):
+        exclude_pass[i] = User(nick_name='nick_name', first_name='first_name', last_name='last_name')
+        exclude_pass[i].user_id = users_followers[i].user_id
+        exclude_pass[i].email = users_followers[i].email
+        exclude_pass[i].nick_name = users_followers[i].nick_name
+        exclude_pass[i].first_name = users_followers[i].first_name
+        exclude_pass[i].last_name = users_followers[i].last_name
+        exclude_pass[i].birth_date = users_followers[i].birth_date
+        exclude_pass[i].followers = users_followers[i].followers
+    return JSONResponse(status_code=200, content=jsonable_encoder(exclude_pass))
 
 ### Show all followers
 @app.get(
