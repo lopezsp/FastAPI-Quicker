@@ -1,5 +1,6 @@
 # Python
-import json
+import itertools
+import bcrypt
 from datetime import date
 from datetime import datetime
 from typing import Optional, List
@@ -10,21 +11,20 @@ from pydantic import EmailStr
 from pydantic import Field
 
 # FastAPI
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi import status
-from fastapi import Body, Depends, Header
+from fastapi import Body, Depends, Header, Path
 from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
+from fastapi import Request
 
 from jwt_manager import create_token
 from config.database import engine, Base
 from config.database import Session
 from models.models import User as UserModel
 from models.models import Quick as QuickModel
-from fastapi.responses import JSONResponse
-import bcrypt
 from middlewares.jwt_bearer import JWTBearer
 from jwt_manager import validate_token
-from fastapi import Request
 from models.models import Followers
 
 app = FastAPI()
@@ -80,8 +80,11 @@ class Quick(BaseModel):
         max_length=256
     )
     created_at: datetime = Field(default=datetime.now())
-    updated_at: Optional[datetime] = Field(default=None)
     by: Optional[str] = Field(default=None)
+
+class UpdateQuick(Quick):
+    updated_at: Optional[datetime] = Field(default=None)
+
  
 Base.metadata.create_all(bind=engine)
 
@@ -284,8 +287,13 @@ def show_my_followers(auth: str = Header(...)):
     summary="Show a User",
     tags=["Users"]
 )
-def show_a_user(): 
-    pass
+def show_a_user(user_id: int = Path()): 
+    db = Session()
+    result = db.query(UserModel).filter(UserModel.user_id == user_id).first()
+    result.password = 'password'
+    if not result:
+        return JSONResponse(status_code=404, content={'message': "User not found!"})
+    return JSONResponse(status_code=200, content=jsonable_encoder(result))   
 
 ### Delete a user
 @app.delete(
@@ -295,8 +303,19 @@ def show_a_user():
     summary="Delete a User",
     tags=["Users"]
 )
-def delete_a_user(): 
-    pass
+def delete_a_user(auth: str = Header(...)): 
+    db = Session()
+    data = validate_token(auth)
+    current_user = db.query(UserModel).filter(UserModel.email == data['email']).first()
+    followed_users = db.query(Followers).filter(Followers.follower_id == current_user.user_id).all()
+    for follow in followed_users:
+        user = db.query(UserModel).filter(UserModel.user_id == follow.user_followed_id).first()
+        user.followers -= 1
+        db.delete(follow)
+
+    db.delete(current_user)
+    db.commit()
+    return JSONResponse(status_code=200, content={'message': 'User deleted'})
 
 ### Update a user
 @app.put(
@@ -306,13 +325,23 @@ def delete_a_user():
     summary="Update a User",
     tags=["Users"]
 )
-def update_a_user(): 
-    pass
-
+def update_a_user(new_data: UserRegister = Body(...), auth: str = Header(...)):
+        db = Session()
+        data = validate_token(auth)
+        current_user = db.query(UserModel).filter(UserModel.email == data['email']).first()
+        current_user.user_id = new_data.user_id
+        current_user.email = new_data.email
+        current_user.nick_name = new_data.nick_name
+        current_user.first_name = new_data.first_name
+        current_user.last_name = new_data.last_name
+        current_user.birth_date = new_data.birth_date
+        current_user.password = bcrypt.hashpw(new_data.password.encode('utf-8'), bcrypt.gensalt())
+        db.commit()
+        return JSONResponse(status_code=200, content={'message': 'Updated'})
 
 ## Quicks
 
-### Show  all quicks
+### Show quicks (Users you follow)
 @app.get(
     path="/",
     response_model=List[Quick],
@@ -320,22 +349,59 @@ def update_a_user():
     summary="Show all quicks",
     tags=["Quicks"]
 )
-def home():
+async def home(auth: str = Header(default='0')):
     """
-    This path operation shows all quicks in the app
+    This path operation shows all quicks of users you follow
 
     Parameters: 
         -
 
     Returns a json list with all quicks in the app: 
-            quick_id: UUID  
+            quick_id: int  
             content: str    
             created_at: datetime
             updated_at: Optional[datetime]
-            by: User
+            by: User (nick_name)
     """
-    return JSONResponse(status_code=200, content={'message': 'hello quickers'})
+    try:
+        data = validate_token(auth)
+    except:
+        data = None
+    if not data:
+        db = Session()
+        quicks = db.query(QuickModel).all()
+        list_quicks = jsonable_encoder(quicks)
+        reversed_quicks = list_quicks[::-1]
+        
+        return JSONResponse(status_code=500, content=reversed_quicks)
+            
+    db = Session()
+    current_user = db.query(UserModel).filter(UserModel.email == data['email']).first()
+    follows = db.query(Followers).filter(Followers.follower_id == current_user.user_id).all()
+    users_i_follow = [None] * len(follows)
+    for i, follow in enumerate(follows):
+        users_i_follow[i] = db.query(UserModel).filter(UserModel.user_id == follow.user_followed_id).first()
+        
+    quicks = [None] * len(users_i_follow)
+    count = 0
+    for user in users_i_follow:
+        quicks[count] = db.query(QuickModel).filter(QuickModel.by == user.nick_name).all()
+        list_quicks = jsonable_encoder(quicks[count])
+        if len(list_quicks) != 0:
+            count += 1
 
+    quicks_iterable = jsonable_encoder(quicks)
+    quicks_sin_none = [lista for lista in quicks_iterable if lista is not None]
+    quicks_list = list(itertools.chain.from_iterable(quicks_sin_none))
+    for obj in quicks_list:
+        obj['created_at'] = datetime.fromisoformat(obj['created_at'].replace('Z', '+00:00'))
+    sorted_list = sorted(quicks_list, key=lambda x:-x['created_at'].timestamp())
+    for obj in sorted_list:
+        obj['created_at'] = obj['created_at'].strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+
+    return JSONResponse(status_code=200, content=sorted_list)
+
+        
 ## Post a quick
 @app.post(
     path="/post",
@@ -364,11 +430,15 @@ def post(request: Request, quick: Quick = Body(...)):
     """
     db = Session()
     data = request.state.current_user
-    quick.by = data['email']
-    new_quick = QuickModel(**quick.dict()) 
-    db.add(new_quick)
-    db.commit()
-    return JSONResponse(status_code=201, content={"message": "You quicked"})
+    if data:
+        user = db.query(UserModel).filter(UserModel.email == data['email']).first()
+        quick.by = user.nick_name
+        new_quick = QuickModel(**quick.dict()) 
+        db.add(new_quick)
+        db.commit()
+        return JSONResponse(status_code=201, content={"message": "You quicked"})
+    else:
+        return JSONResponse(status_code=400, content={'message': 'You need to login'})
     
 
 ### Show a quick
@@ -393,7 +463,7 @@ def show_a_quick():
 def delete_a_quick(): 
     pass
 
-### Update a quicks
+### Update a quick
 @app.put(
     path="/quicks/{quick_id}/update",
     response_model=Quick,
