@@ -32,8 +32,7 @@ app = FastAPI()
 # Models
 
 class UserBase(BaseModel):
-    user_id: int = Field(default=9)
-    email: EmailStr = Field(default='seba@example.com')
+    email: EmailStr = Field(default='user@example.com')
 
 class UserBaseFollow(BaseModel):
     follower_id: int = Field(default=0)
@@ -64,8 +63,7 @@ class User(UserBase):
         max_length=50
     )
     birth_date: Optional[date] = Field(default=None)
-    followers: Optional[int] = Field(default=0)
-    
+        
 class UserRegister(User):
     password: str = Field(
         ..., 
@@ -83,7 +81,7 @@ class Quick(BaseModel):
     by: Optional[str] = Field(default=None)
 
 class UpdateQuick(Quick):
-    updated_at: Optional[datetime] = Field(default=None)
+    updated_at: Optional[datetime] = Field(default=datetime.now())
 
  
 Base.metadata.create_all(bind=engine)
@@ -267,7 +265,9 @@ def show_my_followers(auth: str = Header(...)):
     users_followers = [None] * len(my_followers)
     for i, object in enumerate(my_followers):
         users_followers[i] = db.query(UserModel).filter(UserModel.user_id == object.follower_id).first()
+
     exclude_pass = [None] * len(users_followers)
+
     for i in range(len(users_followers)):
         exclude_pass[i] = User(nick_name='nick_name', first_name='first_name', last_name='last_name')
         exclude_pass[i].user_id = users_followers[i].user_id
@@ -281,19 +281,27 @@ def show_my_followers(auth: str = Header(...)):
 
 ### Show a user
 @app.get(
-    path="/users/{user_id}",
+    path="/users/{id}",
     response_model=User,
     status_code=status.HTTP_200_OK,
     summary="Show a User",
     tags=["Users"]
 )
-def show_a_user(user_id: int = Path()): 
+def show_a_user(id: int = Path()): 
     db = Session()
-    result = db.query(UserModel).filter(UserModel.user_id == user_id).first()
-    result.password = 'password'
-    if not result:
+    user = db.query(UserModel).filter(UserModel.user_id == id).first()
+    if user:
+        user_with_out_password = User(nick_name='nick_name', first_name='first_name', last_name='last_name')
+        user_with_out_password.email = user.email
+        user_with_out_password.user_id = user.user_id
+        user_with_out_password.nick_name = user.nick_name
+        user_with_out_password.birth_date = user.birth_date
+        user_with_out_password.first_name = user.first_name
+        user_with_out_password.last_name = user.last_name
+        user_with_out_password.followers = user.followers
+        return JSONResponse(status_code=200, content=jsonable_encoder(user_with_out_password))
+    else:
         return JSONResponse(status_code=404, content={'message': "User not found!"})
-    return JSONResponse(status_code=200, content=jsonable_encoder(result))   
 
 ### Delete a user
 @app.delete(
@@ -329,7 +337,6 @@ def update_a_user(new_data: UserRegister = Body(...), auth: str = Header(...)):
         db = Session()
         data = validate_token(auth)
         current_user = db.query(UserModel).filter(UserModel.email == data['email']).first()
-        current_user.user_id = new_data.user_id
         current_user.email = new_data.email
         current_user.nick_name = new_data.nick_name
         current_user.first_name = new_data.first_name
@@ -443,33 +450,69 @@ def post(request: Request, quick: Quick = Body(...)):
 
 ### Show a quick
 @app.get(
-    path="/quicks/{quick_id}",
+    path="/quicks/{id}",
     response_model=Quick,
     status_code=status.HTTP_200_OK,
     summary="Show a quick",
     tags=["Quicks"]
 )
-def show_a_quick(): 
-    pass
+def show_a_quick(id: int = Path()):
+    db = Session()
+    quick = db.query(QuickModel).filter(QuickModel.quick_id == id).first()
+    if quick:
+        return JSONResponse(status_code=200, content=jsonable_encoder(quick))
+    else:
+        return JSONResponse(status_code=404, content={'message': "Quick not found, may have been deleted"})
 
 ### Delete a quick
-@app.delete(
-    path="/quicks/{quick_id}/delete",
+@app.put(
+    path="/quicks/{id}/delete",
     response_model=Quick,
     status_code=status.HTTP_200_OK,
     summary="Delete a quick",
     tags=["Quicks"]
 )
-def delete_a_quick(): 
-    pass
+def delete_a_quick(id: int = Path(), auth: str = Header(...)):
+    db = Session()
+    data = validate_token(auth)
+    current_user = db.query(UserModel).filter(UserModel.email == data['email']).first()
+    quick_to_delete = db.query(QuickModel).filter(QuickModel.quick_id  == id).first()
+    if quick_to_delete:
+        if quick_to_delete.by == 'deleted@quicks.co':
+            return JSONResponse(status_code=400, content={'message': 'Quick already deleted'})
+        elif  current_user.nick_name == quick_to_delete.by:
+            quick_to_delete.content = 'Quick deleted'
+            quick_to_delete.updated_at = datetime.now()
+            quick_to_delete.by = 'deleted@quicks.co'
+            db.commit()
+            return JSONResponse(status_code=200, content={'message': 'Quick Deleted!'})
+        else:
+            return JSONResponse(status_code=400, content={'message': 'You can not delete this quick'})
+    else:
+        return JSONResponse(status_code=404, content={'message':'Quick not found!'})
 
 ### Update a quick
 @app.put(
-    path="/quicks/{quick_id}/update",
+    path="/quicks/{id}/update",
     response_model=Quick,
     status_code=status.HTTP_200_OK,
     summary="Update a quick",
     tags=["Quicks"]
 )
-def update_a_quick(): 
-    pass
+def update_a_quick(id: int = Path(), auth: str = Header(...), new_data: UpdateQuick = Body(...)):
+    db = Session()
+    data = validate_token(auth)
+    current_user = db.query(UserModel).filter(UserModel.email == data['email']).first()
+    quick_to_update = db.query(QuickModel).filter(QuickModel.quick_id == id).first()
+    if new_data.content == quick_to_update.content:
+        return JSONResponse(status_code=400, content={'message': 'No changes'})
+    elif current_user.nick_name == quick_to_update.by:
+        quick_to_update.content = new_data.content
+        quick_to_update.by = current_user.nick_name
+        quick_to_update.updated_at = new_data.updated_at
+        db.commit()
+        return JSONResponse(status_code=200, content={'message': 'Quick updated!'})
+    else:
+        return JSONResponse(status_code=400, content={'message': 'You can not update this quick'})
+
+    
