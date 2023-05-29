@@ -1,6 +1,6 @@
 from fastapi.security import HTTPBearer
 from fastapi import Request, HTTPException
-from jwt_manager import validate_token
+from utils.jwt_manager import validate_token
 from config.database import Session
 from models.models import User as UserModel
 

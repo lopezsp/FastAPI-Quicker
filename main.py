@@ -18,13 +18,13 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from fastapi import Request
 
-from jwt_manager import create_token
+from utils.jwt_manager import create_token
 from config.database import engine, Base
 from config.database import Session
 from models.models import User as UserModel
 from models.models import Quick as QuickModel
 from middlewares.jwt_bearer import JWTBearer
-from jwt_manager import validate_token
+from utils.jwt_manager import validate_token
 from models.models import Followers
 
 app = FastAPI()
@@ -33,6 +33,7 @@ app = FastAPI()
 
 class UserBase(BaseModel):
     email: EmailStr = Field(default='user@example.com')
+    user_id: int = Field(default= 0)
 
 class UserBaseFollow(BaseModel):
     follower_id: int = Field(default=0)
@@ -63,6 +64,7 @@ class User(UserBase):
         max_length=50
     )
     birth_date: Optional[date] = Field(default=None)
+    followers: int = Field(default=0)
         
 class UserRegister(User):
     password: str = Field(
@@ -121,6 +123,7 @@ def signup(user: UserRegister = Body(...)):
     hashed_password = bcrypt.hashpw(new_user.password.encode('utf-8'), bcrypt.gensalt())
     new_user.password = hashed_password
     users = db.query(UserModel).all()
+    new_user.user_id = len(users)
     for us in users:
         if user.email == us.email:
             return JSONResponse(status_code=400, content={'message': 'Email is already in use'})
@@ -168,8 +171,8 @@ def follow_user(follow: UserBaseFollow = Body(...), auth: str = Header(...)):
             
         if new_follow.follower_id == new_follow.user_followed_id:
                 return JSONResponse(status_code=400, content={'message': 'You can not follow yourself'})                   
-        db.add(new_follow)
         user_to_follow_id.followers += 1
+        db.add(new_follow)
         db.commit()        
         return JSONResponse(status_code=200, content={'message': 'You followed'})
     else:
@@ -196,13 +199,11 @@ def unfollow_user(unfollow: UserBaseFollow = Body(...), auth: str = Header(...))
                 db.delete(object)
                 user_to_unfollow.followers -= 1
                 db.commit()
-                break
-            else:
-                return JSONResponse(status_code=404, content={'message': 'You are not following this user'})
-        return JSONResponse(status_code=200, content={'message': 'You unfollowed'})
+                return JSONResponse(status_code=200, content={'message': 'You unfollowed'})          
+                
+        return JSONResponse(status_code=404, content={'message': 'You are not following this user'})
     else:
         return JSONResponse(status_code=404, content={'message': 'User Not Found!'})
-
 
 ### Show all followed
 @app.get(
