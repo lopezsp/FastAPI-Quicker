@@ -3,3 +3,11 @@ __pycache__
 .vscode
 tasks.md
 database.sqlite
+.vercel
+postgres_data
+.space3
+docker-compose.yml
+fastapi-beta/.env
+.env
+fastapi-beta/alembic
+fastapi-beta/alembic.ini

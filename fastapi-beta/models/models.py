@@ -13,7 +13,7 @@ class User(Base):
     last_name = Column(String)
     birth_date = Column(DateTime)
     followers = Column(Integer)
-    nick_name = Column(String)
+    nick_name = Column(String, unique=True)
 
     class Config:
         orm_mode = True

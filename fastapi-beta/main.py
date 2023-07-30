@@ -18,21 +18,37 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from fastapi import Request
 
-from jwt_manager import create_token
+from utils.jwt_manager import create_token
 from config.database import engine, Base
 from config.database import Session
 from models.models import User as UserModel
 from models.models import Quick as QuickModel
 from middlewares.jwt_bearer import JWTBearer
-from jwt_manager import validate_token
+from utils.jwt_manager import validate_token
 from models.models import Followers
+from fastapi.middleware.cors import CORSMiddleware
+
 
 app = FastAPI()
+
+origins = [
+    "http://localhost:5173",
+    "https://master--lucent-torrone-6b45b7.netlify.app"
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Models
 
 class UserBase(BaseModel):
     email: EmailStr = Field(default='user@example.com')
+    user_id: int = Field(default= 0)
 
 class UserBaseFollow(BaseModel):
     follower_id: int = Field(default=0)
@@ -63,6 +79,7 @@ class User(UserBase):
         max_length=50
     )
     birth_date: Optional[date] = Field(default=None)
+    followers: int = Field(default=0)
         
 class UserRegister(User):
     password: str = Field(
@@ -120,13 +137,20 @@ def signup(user: UserRegister = Body(...)):
     new_user = UserModel(**user.dict())
     hashed_password = bcrypt.hashpw(new_user.password.encode('utf-8'), bcrypt.gensalt())
     new_user.password = hashed_password
-    users = db.query(UserModel).all()
-    for us in users:
-        if user.email == us.email:
-            return JSONResponse(status_code=400, content={'message': 'Email is already in use'})
+    user_with_same_email = db.query(UserModel).filter(UserModel.email == user.email).first()
+    if user_with_same_email:
+        return JSONResponse(status_code=400, content={'message': 'Email is already in use'})
+    
+    users_ids = db.query(UserModel.user_id).all()
+    new_user.user_id = len(users_ids)
+    user_with_same_id = db.query(UserModel).filter(UserModel.user_id == new_user.user_id).first()
+    while user_with_same_id:
+        new_user.user_id = new_user.user_id + 1
+        user_with_same_id = db.query(UserModel).filter(UserModel.user_id == new_user.user_id).first()
+
     db.add(new_user)
     db.commit()
-    return JSONResponse(status_code=201, content={"message": "User has been created"})
+    return JSONResponse(status_code=201, content={'message': 'User has been created'})
             
 ### Login a user
 @app.post(
@@ -139,11 +163,24 @@ def signup(user: UserRegister = Body(...)):
 def login(user: UserLogin): 
     db = Session()
     users = db.query(UserModel).filter(UserModel.email == user.email).first()
-    if bcrypt.checkpw(user.password.encode('utf-8'), users.password):
+    if users:
+        decoded_password = bytes.fromhex(users.password[2:]).decode('utf-8')
+        user_without_password = users.__dict__
+        user_without_password.pop('password', None) 
+        if bcrypt.checkpw(user.password.encode('utf-8'), decoded_password.encode('utf-8')):
+            token: str = create_token(user.dict())
+            return JSONResponse(status_code=200, content={ 'user': jsonable_encoder(user_without_password), 'token': token })
+    return JSONResponse(status_code=404, content={'message': 'Password incorrect or user does not exist'})
+
+'''def login(user: UserLogin): 
+    db = Session()
+    users = db.query(UserModel).filter(UserModel.email == user.email).first()
+    decoded_password = bytes.fromhex(users.password[2:]).decode('utf-8')
+    if bcrypt.checkpw(user.password.encode('utf-8'), decoded_password):
         token: str = create_token(user.dict())
         return JSONResponse(status_code=200, content=token)
     else:
-        return JSONResponse(status_code=404, content={'message': 'Password incorrect or user does not exist'})   
+        return JSONResponse(status_code=404, content={'message': 'Password incorrect or user does not exist'})'''
 
 ### Follow a user
 @app.post(
@@ -168,8 +205,8 @@ def follow_user(follow: UserBaseFollow = Body(...), auth: str = Header(...)):
             
         if new_follow.follower_id == new_follow.user_followed_id:
                 return JSONResponse(status_code=400, content={'message': 'You can not follow yourself'})                   
-        db.add(new_follow)
         user_to_follow_id.followers += 1
+        db.add(new_follow)
         db.commit()        
         return JSONResponse(status_code=200, content={'message': 'You followed'})
     else:
@@ -196,13 +233,11 @@ def unfollow_user(unfollow: UserBaseFollow = Body(...), auth: str = Header(...))
                 db.delete(object)
                 user_to_unfollow.followers -= 1
                 db.commit()
-                break
-            else:
-                return JSONResponse(status_code=404, content={'message': 'You are not following this user'})
-        return JSONResponse(status_code=200, content={'message': 'You unfollowed'})
+                return JSONResponse(status_code=200, content={'message': 'You unfollowed'})          
+                
+        return JSONResponse(status_code=404, content={'message': 'You are not following this user'})
     else:
         return JSONResponse(status_code=404, content={'message': 'User Not Found!'})
-
 
 ### Show all followed
 @app.get(
@@ -287,9 +322,9 @@ def show_my_followers(auth: str = Header(...)):
     summary="Show a User",
     tags=["Users"]
 )
-def show_a_user(id: int = Path()): 
+def show_a_user(id: str = Path()): 
     db = Session()
-    user = db.query(UserModel).filter(UserModel.user_id == id).first()
+    user = db.query(UserModel).filter(UserModel.nick_name == id).first()
     if user:
         user_with_out_password = User(nick_name='nick_name', first_name='first_name', last_name='last_name')
         user_with_out_password.email = user.email
@@ -305,7 +340,7 @@ def show_a_user(id: int = Path()):
 
 ### Delete a user
 @app.delete(
-    path="/users/{user_id}/delete",
+    path="/users/delete",
     response_model=User,
     status_code=status.HTTP_200_OK,
     summary="Delete a User",
@@ -315,10 +350,16 @@ def delete_a_user(auth: str = Header(...)):
     db = Session()
     data = validate_token(auth)
     current_user = db.query(UserModel).filter(UserModel.email == data['email']).first()
+    quicks_user = db.query(QuickModel).filter(QuickModel.by == current_user.nick_name).all()
+    for quick in quicks_user:
+        db.delete(quick)
     followed_users = db.query(Followers).filter(Followers.follower_id == current_user.user_id).all()
     for follow in followed_users:
         user = db.query(UserModel).filter(UserModel.user_id == follow.user_followed_id).first()
         user.followers -= 1
+        db.delete(follow)
+    users_following_me = db.query(Followers).filter(Followers.user_followed_id == current_user.user_id).all()
+    for follow in users_following_me:
         db.delete(follow)
 
     db.delete(current_user)
@@ -327,7 +368,7 @@ def delete_a_user(auth: str = Header(...)):
 
 ### Update a user
 @app.put(
-    path="/users/{user_id}/update",
+    path="/users/update",
     response_model=User,
     status_code=status.HTTP_200_OK,
     summary="Update a User",
@@ -380,7 +421,7 @@ async def home(auth: str = Header(default='0')):
         list_quicks = jsonable_encoder(quicks)
         reversed_quicks = list_quicks[::-1]
         
-        return JSONResponse(status_code=500, content=reversed_quicks)
+        return JSONResponse(status_code=200, content=reversed_quicks)
             
     db = Session()
     current_user = db.query(UserModel).filter(UserModel.email == data['email']).first()
@@ -477,13 +518,10 @@ def delete_a_quick(id: int = Path(), auth: str = Header(...)):
     data = validate_token(auth)
     current_user = db.query(UserModel).filter(UserModel.email == data['email']).first()
     quick_to_delete = db.query(QuickModel).filter(QuickModel.quick_id  == id).first()
-    if quick_to_delete:
-        if quick_to_delete.by == 'deleted@quicks.co':
-            return JSONResponse(status_code=400, content={'message': 'Quick already deleted'})
-        elif  current_user.nick_name == quick_to_delete.by:
+    if quick_to_delete:           
+        if  current_user.nick_name == quick_to_delete.by:
             quick_to_delete.content = 'Quick deleted'
             quick_to_delete.updated_at = datetime.now()
-            quick_to_delete.by = 'deleted@quicks.co'
             db.commit()
             return JSONResponse(status_code=200, content={'message': 'Quick Deleted!'})
         else:
