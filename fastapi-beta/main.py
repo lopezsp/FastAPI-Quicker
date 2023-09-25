@@ -163,12 +163,13 @@ def signup(user: UserRegister = Body(...)):
 def login(user: UserLogin): 
     db = Session()
     users = db.query(UserModel).filter(UserModel.email == user.email).first()
+    users.birth_date = users.birth_date.strftime('%Y-%m-%d')
     if users:
         decoded_password = bytes.fromhex(users.password[2:]).decode('utf-8')
         user_without_password = users.__dict__
-        user_without_password.pop('password', None) 
+        user_without_password.pop('password', None)
         if bcrypt.checkpw(user.password.encode('utf-8'), decoded_password.encode('utf-8')):
-            token: str = create_token(user.dict())
+            token: str = create_token(user.dict())            
             return JSONResponse(status_code=200, content={ 'user': jsonable_encoder(user_without_password), 'token': token })
     return JSONResponse(status_code=404, content={'message': 'Password incorrect or user does not exist'})
 
