@@ -11,7 +11,7 @@ from pydantic import EmailStr
 from pydantic import Field
 
 # FastAPI
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi import status
 from fastapi import Body, Depends, Header, Path
 from fastapi.encoders import jsonable_encoder
@@ -330,7 +330,7 @@ def show_a_user(id: str = Path()):
         user_with_out_password.email = user.email
         user_with_out_password.user_id = user.user_id
         user_with_out_password.nick_name = user.nick_name
-        user_with_out_password.birth_date = user.birth_date
+        user_with_out_password.birth_date = user.birth_date.strftime('%Y-%m-%d')
         user_with_out_password.first_name = user.first_name
         user_with_out_password.last_name = user.last_name
         user_with_out_password.followers = user.followers
@@ -418,8 +418,12 @@ async def home(auth: str = Header(default='0')):
     if not data:
         db = Session()
         quicks = db.query(QuickModel).all()
-        list_quicks = jsonable_encoder(quicks)
-        reversed_quicks = list_quicks[::-1]
+        list_quicks = jsonable_encoder(quicks)        
+        for obj in list_quicks:
+            obj['created_at'] = datetime.fromisoformat(obj['created_at'].replace('Z', '+00:00'))
+        reversed_quicks = sorted(list_quicks, key=lambda x:-x['created_at'].timestamp())
+        for obj in reversed_quicks:
+            obj['created_at'] = obj['created_at'].strftime('%Y-%m-%d %H:%M:%S')
         
         return JSONResponse(status_code=200, content=reversed_quicks)
             
@@ -445,7 +449,7 @@ async def home(auth: str = Header(default='0')):
         obj['created_at'] = datetime.fromisoformat(obj['created_at'].replace('Z', '+00:00'))
     sorted_list = sorted(quicks_list, key=lambda x:-x['created_at'].timestamp())
     for obj in sorted_list:
-        obj['created_at'] = obj['created_at'].strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+        obj['created_at'] = obj['created_at'].strftime('%Y-%m-%d %H:%M:%S')
 
     return JSONResponse(status_code=200, content=sorted_list)
 
@@ -486,7 +490,7 @@ def post(request: Request, quick: Quick = Body(...)):
         db.commit()
         return JSONResponse(status_code=201, content={"message": "You quicked"})
     else:
-        return JSONResponse(status_code=400, content={'message': 'You need to login'})
+        return JSONResponse(status_code=400, content={'message': 'You need to log in'})
     
 
 ### Show a quick
